@@ -1,0 +1,229 @@
+#include "msp430.h"
+
+
+
+
+#define TRIG_PIN BIT1 // Corresponds to P2.1
+
+#define ECHO_PIN BIT1 // Corresponds to P1.1
+
+
+
+//#define TXD BIT2 // TXD on P1.2
+
+
+
+volatile unsigned long start_time;
+
+volatile unsigned long end_time;
+
+volatile unsigned long delta_time;
+
+volatile unsigned long distance;
+
+
+
+void wait_ms(unsigned int ms)
+
+{
+
+    unsigned int i;
+
+    for (i = 0; i <= ms; i++)
+
+    {
+
+        __delay_cycles(1000);
+
+    }
+
+}
+
+
+
+#if defined(__TI_COMPILER_VERSION__)
+
+#pragma vector = TIMER0_A0_VECTOR
+
+__interrupt void ta1_isr(void)
+
+#else
+
+void __attribute__((interrupt(TIMER0_A0_VECTOR))) ta1_isr(void)
+
+#endif
+
+{
+
+    switch (TAIV)
+
+    {
+
+    //Timer overflow
+
+    case 10:
+
+        break;
+
+        //Otherwise Capture Interrupt
+
+    default:
+
+        // Read the CCI bit (ECHO signal) in CCTL0
+
+        // If ECHO is HIGH then start counting (rising edge)
+
+        if (CCTL0 & CCI)
+
+        {
+
+            start_time = CCR0;
+
+        } // If ECHO is LOW then stop counting (falling edge)
+
+        else
+
+        {
+
+            end_time = CCR0;
+
+            delta_time = end_time - start_time;
+
+            distance = (unsigned long)(delta_time / 0.00583090379);
+
+
+
+            //set a range
+
+            if (distance / 10000 >= 2.0 && distance / 10000 <= 35)
+
+            {
+
+                //turn on LED P1.0;
+
+                P1OUT |= BIT0;
+
+
+
+                        }
+
+            else
+
+                P1OUT &= ~BIT0;
+
+        }
+
+        break;
+
+    }
+
+    TACTL &= ~CCIFG; // reset the interrupt flag
+
+}
+
+
+
+
+
+void reset_timer(void)
+
+{
+
+    //Clear timer
+
+    TACTL |= TACLR;
+
+}
+
+
+
+void main(void)
+
+{
+
+    // Stop Watch Dog Timer
+
+    WDTCTL = WDTPW + WDTHOLD;
+
+
+
+
+    // Set ECHO (P1.1) pin as INPUT
+
+    P1DIR &= ~ECHO_PIN;
+
+    // Set P1.1 as CCI0A (Capture Input signal).
+
+    P1SEL |= ECHO_PIN;
+
+    // Set TRIGGER (P2.1) pin as OUTPUT
+
+    P2DIR |= TRIG_PIN;
+
+    // Set TRIGGER (P2.1) pin to LOW
+
+    P2OUT &= ~TRIG_PIN;
+
+    P1DIR |= BIT0;
+
+    P1OUT &= ~BIT0;
+
+    //P1DIR |= BIT6;
+
+    /* Use internal calibrated 1MHz clock: */
+
+    BCSCTL1 = CALBC1_1MHZ; // Set range
+
+    DCOCTL = CALDCO_1MHZ;
+
+    BCSCTL2 &= ~(DIVS_3); // SMCLK = DCO = 1MHz
+
+
+
+    // Stop timer before modifying the configuration
+
+    TACTL = MC_0;
+
+
+
+    CCTL0 |= CM_3 + SCS + CCIS_0 + CAP + CCIE;
+
+    // Select SMCLK with no divisions, continuous mode.
+
+    TACTL |= TASSEL_2 + MC_2 + ID_0;
+
+
+
+    // Global Interrupt Enable
+
+    __enable_interrupt();
+
+
+
+    while (1)
+
+    {
+
+        // send ultrasonic pulse
+
+        reset_timer();
+
+        // Enable TRIGGER
+
+        P2OUT |= TRIG_PIN;
+
+        // Send pulse for 10us
+
+        __delay_cycles(10);
+
+        // Disable TRIGGER
+
+        P2OUT &= ~TRIG_PIN;
+
+        // wait 100ms until next measurement
+
+        wait_ms(10);
+
+    }
+
+}
